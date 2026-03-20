@@ -1,0 +1,9 @@
+.env
+__pycache__/
+
+# Claude Code local data
+.claude/
+CLAUDE.md
+
+# Frontend config (contains Supabase credentials)
+index.html
