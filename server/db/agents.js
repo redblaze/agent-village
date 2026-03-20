@@ -60,16 +60,54 @@ export async function touchProactiveTimestamp(agentId) {
 export async function getMemoriesForContext(agentId, trustLevel) {
   if (trustLevel === 'public') return [];
 
-  let query = supabase.from('living_memory').select('*').eq('agent_id', agentId);
+  let query = supabase
+    .from('living_memory')
+    .select('*')
+    .eq('agent_id', agentId)
+    .eq('source', 'owner');          // exclude visitor memories
 
   if (trustLevel === 'stranger') {
     query = query
       .eq('visibility', 'derived_safe')
       .in('sensitivity', ['low', 'medium']);
   }
-  // 'owner' — no extra filters, fetch all
+  // 'owner' — no additional filters beyond source='owner'
 
   const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertVisitorMemory(agentId, sessionId, text, sensitivity) {
+  const { error } = await supabase
+    .from('living_memory')
+    .upsert(
+      { agent_id: agentId, session_id: sessionId, text, sensitivity,
+        visibility: 'private', source: 'visitor' },
+      { onConflict: 'agent_id,session_id' }
+    );
+  if (error) throw error;
+}
+
+export async function getVisitorMemoryBySession(agentId, sessionId) {
+  const { data, error } = await supabase
+    .from('living_memory')
+    .select('text')
+    .eq('agent_id', agentId)
+    .eq('session_id', sessionId)
+    .single();
+  if (error) return null;   // PGRST116 = not found (first turn); other errors: degrade gracefully
+  return data;
+}
+
+export async function getVisitorMemories(agentId) {
+  const { data, error } = await supabase
+    .from('living_memory')
+    .select('text, created_at')
+    .eq('agent_id', agentId)
+    .eq('source', 'visitor')
+    .order('created_at', { ascending: false })
+    .limit(10);
   if (error) throw error;
   return data ?? [];
 }

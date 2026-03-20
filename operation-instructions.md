@@ -4,7 +4,7 @@
 
 1. **Create Supabase project** → run `setup-database.sql` → run `seed.sql`
 
-2. **Run both migration files** in `server/db/db_migration/` in the Supabase SQL Editor
+2. **Run all migration files** in `server/db/db_migration/` in the Supabase SQL Editor (`add_memory_classification.sql`, `add_agent_proactive_tracking.sql`, `add_visitor_memory_support.sql`)
 
 3. **Fill in `server/.env`** with real credentials (Supabase URL, service role key, OpenAI key)
 
