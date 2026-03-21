@@ -123,6 +123,19 @@ export async function getPrivateMemoryTexts(agentId) {
   return (data ?? []).map(r => r.text);
 }
 
+export async function getNonSensitiveMemories(agentId) {
+  const { data, error } = await supabase
+    .from('living_memory')
+    .select('text')
+    .eq('agent_id', agentId)
+    .eq('source', 'owner')
+    .in('sensitivity', ['low', 'medium']);
+  if (error) throw error;
+  // filter(t => t != null) guards against rare null text rows so callers never
+  // receive null values that would render as "- null" in an LLM prompt
+  return (data ?? []).map(r => r.text).filter(t => t != null);
+}
+
 export async function saveMemory(agentId, text, visibility = 'private', sensitivity = 'high') {
   const { error } = await supabase
     .from('living_memory')

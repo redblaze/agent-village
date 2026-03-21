@@ -1,6 +1,7 @@
 import { getAllAgents } from '../db/agents.js';
-import { shouldActProactively, runProactiveBehavior } from '../services/proactive.js';
+import { runProactiveBehavior } from '../services/proactive.js';
 import { cleanExpiredSessions } from '../services/session.js';
+import { shouldActProactively } from '../middleware/proactivePolicy.js';
 
 export function startScheduler(intervalMs) {
   console.log(`Scheduler started — interval: ${intervalMs}ms`);

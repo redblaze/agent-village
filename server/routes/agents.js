@@ -1,11 +1,12 @@
 import express from 'express';
-import { createAgent, getAgentById } from '../db/agents.js';
+import { createAgent } from '../db/agents.js';   // getAgentById removed — handled in resolveContext
 import { respondToMessage } from '../services/agentService.js';
 import { resolveTrust } from '../middleware/trust.js';
+import { resolveContext } from '../middleware/chatContext.js';
 
 const router = express.Router();
 
-// POST /agents — create a new agent
+// POST /agents — create a new agent (unchanged)
 router.post('/', async (req, res) => {
   try {
     const { name, bio, visitorBio, status, accentColor, showcaseEmoji } = req.body ?? {};
@@ -19,26 +20,35 @@ router.post('/', async (req, res) => {
 });
 
 // POST /agents/:id/message
-router.post('/:id/message', resolveTrust, async (req, res) => {
-  try {
-    const { message, sessionId } = req.body ?? {};
+// Middleware order preserves original error precedence:
+//   1. Validate message → 400 (before any DB/LLM work, same as original)
+//   2. resolveTrust → sets req.trustLevel and req.agent for owners
+//   3. resolveContext → fetches agent (→ 404 if missing), builds req.systemPrompt
+//   4. Handler → respondToMessage → 500 on error
+router.post('/:id/message',
+  (req, res, next) => {
+    const { message } = req.body ?? {};
     if (!message) return res.status(400).json({ error: 'message is required' });
-
-    // For strangers, req.agent is not set by trust middleware — fetch it here
-    const agent = req.agent ?? await getAgentById(req.params.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-    const result = await respondToMessage({
-      agent,
-      trustLevel: req.trustLevel,
-      userMessage: message,
-      sessionId,
-    });
-    res.json(result);
-  } catch (err) {
-    console.error('POST /agents/:id/message error:', err);
-    res.status(500).json({ error: 'Failed to process message' });
+    next();
+  },
+  resolveTrust,
+  resolveContext,
+  async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      const result = await respondToMessage({
+        agent:        req.agent,
+        trustLevel:   req.trustLevel,
+        userMessage:  req.body.message,
+        sessionId,
+        systemPrompt: req.systemPrompt,
+      });
+      res.json(result);
+    } catch (err) {
+      console.error('POST /agents/:id/message error:', err);
+      res.status(500).json({ error: 'Failed to process message' });
+    }
   }
-});
+);
 
 export default router;
