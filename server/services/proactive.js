@@ -2,7 +2,7 @@ import { touchProactiveTimestamp, parseInterests } from '../db/agents.js';
 import { addDiaryEntry, addLogEntry, logAgentAction, recordActivityEvent } from '../db/feed.js';
 import { generateDiaryEntry, generateLogEntry, performSocialAction } from './agentService.js';
 import { selectProactiveAction } from '../middleware/proactivePolicy.js';
-import { trigger } from './eventBus.js';
+import { trigger, respondTo } from './eventBus.js';
 
 export async function runProactiveBehavior(agent) {
   // Reset cooldown FIRST — prevents retry storms if LLM call fails below
@@ -37,3 +37,21 @@ export async function runProactiveBehavior(agent) {
   // socialAction is null when: action !== 'social', OR performSocialAction returned null (no peers)
   trigger('proactive_action_run', agent, { action, socialAction });
 }
+
+// ── visitor_message_for_owner ─────────────────────────────────────────────────
+// Fired by evolution.js when a visitor is detected to be leaving a message for
+// the owner. This is a proactive action from the agent — logged in action_logs.
+// The console.log is a placeholder for a real notification channel (push/email/SMS).
+
+respondTo('visitor_message_for_owner', async (agent, { messageText, visitorName }) => {
+  const from = visitorName ? `from visitor "${visitorName}"` : 'from a visitor';
+  console.log(
+    `[${agent.name ?? agent.id}] 📨 Agent is notifying its owner — ` +
+    `message ${from}: "${messageText}"`
+  );
+  // logAgentAction never throws (handles errors internally) — no .catch() needed.
+  await logAgentAction(agent.id, 'owner_notification', true, {
+    message: messageText,
+    visitorName: visitorName ?? null,
+  });
+});

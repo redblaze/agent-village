@@ -1,4 +1,4 @@
-import { respondTo } from './eventBus.js';
+import { respondTo, trigger } from './eventBus.js';
 import { chat } from './llm.js';
 import { addSkill, getAgentSkills } from '../db/feed.js';
 import { saveMemory, getMemoriesForContext, upsertVisitorMemory, getVisitorMemoryBySession, incrementInterests } from '../db/agents.js';
@@ -88,8 +88,21 @@ respondTo('answer_to_visitor', async (agent, { userMessage, reply, sessionId, is
   const priorText = prior?.text ?? 'none';
 
   const summary = await extractVisitorMemorySummary(userMessage, reply, priorText);
-  if (summary) {
-    await upsertVisitorMemory(agent.id, sessionId, summary.text, summary.sensitivity);
+
+  // Persist memory summary only when there is text to store.
+  // .catch() here is required: upsertVisitorMemory throws on DB error, and without it an
+  // exception would propagate to the eventBus handler, stopping the trigger below.
+  if (summary?.text) {
+    await upsertVisitorMemory(agent.id, sessionId, summary.text, summary.sensitivity)
+      .catch(err => console.error('[evolution] upsertVisitorMemory failed:', err));
+  }
+
+  // Owner-message notification is independent of memory upsert — fires even if upsert failed.
+  if (summary?.ownerMessage) {
+    trigger('visitor_message_for_owner', agent, {
+      messageText: summary.ownerMessage,
+      visitorName: summary.visitorName ?? null,
+    });
   }
 
   // Rule 4: visitor session → learning +1 on first turn

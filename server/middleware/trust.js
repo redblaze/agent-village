@@ -169,8 +169,9 @@ export async function extractOwnerMemoryFacts(userMessage, rawReply, existingTex
 
 /**
  * Summarise a visitor exchange into an owner-facing memory note.
- * Returns { text: string, sensitivity: 'low'|'medium' } or null if nothing to record.
- * Returns null on JSON parse failure (bug fix). Throws if chat() fails (propagates to eventBus).
+ * Returns { text: string|null, sensitivity: 'low'|'medium', ownerMessage: string|null, visitorName: string|null }
+ * or null if there is nothing to record and no owner-directed message.
+ * Returns null on JSON parse failure. Throws if chat() fails (propagates to eventBus).
  */
 export async function extractVisitorMemorySummary(userMessage, reply, priorText) {
   const result = await chat([
@@ -181,8 +182,13 @@ export async function extractVisitorMemorySummary(userMessage, reply, priorText)
         `Include: visitor name (if given), apparent purpose, any message left for the owner.\n` +
         `Prior summary: ${priorText}\n` +
         `Update it with any new information from the latest exchange below.\n` +
-        `Return JSON only: { "text": "...", "sensitivity": "low" | "medium" }\n` +
-        `If there is still nothing meaningful to record, return { "text": null }.`,
+        `If the visitor is explicitly leaving a message or information intended for the owner, ` +
+        `AND that message contains new content not already covered by the prior summary above, ` +
+        `capture it concisely in "ownerMessage". If the owner-directed content is already ` +
+        `reflected in the prior summary, set "ownerMessage" to null.\n` +
+        `If the visitor's name is known or mentioned, capture it in "visitorName". Otherwise set "visitorName" to null.\n` +
+        `Return JSON only: { "text": "...", "sensitivity": "low" | "medium", "ownerMessage": "..." | null, "visitorName": "..." | null }\n` +
+        `If there is still nothing meaningful to record, return { "text": null, "ownerMessage": null, "visitorName": null }.`,
     },
     { role: 'user', content: `Visitor said: ${userMessage}\nAgent replied: ${reply}` },
   ]);
@@ -195,7 +201,27 @@ export async function extractVisitorMemorySummary(userMessage, reply, priorText)
     console.error('[trust] extractVisitorMemorySummary: failed to parse LLM response:', result);
     return null;
   }
-  if (!parsed?.text) return null;
+
+  // Extract ownerMessage BEFORE the text null-guard so an owner-directed message is never
+  // lost when the LLM has nothing else to record in the memory summary.
+  // Use optional chaining: JSON.parse("null") returns null, and null.ownerMessage would throw.
+  const ownerMessage = typeof parsed?.ownerMessage === 'string' && parsed.ownerMessage.trim()
+    ? parsed.ownerMessage.trim()
+    : null;
+
+  // Only bail out when truly nothing to record.
+  if (!parsed?.text && !ownerMessage) return null;
+
   const raw = typeof parsed.sensitivity === 'string' ? parsed.sensitivity.toLowerCase() : '';
-  return { text: parsed.text, sensitivity: ['low', 'medium'].includes(raw) ? raw : 'medium' };
+
+  const visitorName = typeof parsed?.visitorName === 'string' && parsed.visitorName.trim()
+    ? parsed.visitorName.trim()
+    : null;
+
+  return {
+    text: parsed.text ?? null,   // null when only ownerMessage is present
+    sensitivity: ['low', 'medium'].includes(raw) ? raw : 'medium',
+    ownerMessage,
+    visitorName,
+  };
 }

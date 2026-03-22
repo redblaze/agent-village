@@ -11,6 +11,7 @@
    4. `server/db/db_migration/add_agent_action_logs.sql` — creates `living_agent_action_logs` table
    5. `server/db/db_migration/fix_action_log_social_constraint.sql` — corrects `action_type` constraint value (`social_with_other_agents` → `social`)
    6. `server/db/db_migration/add_agent_memory_source.sql` — extends `source` constraint to include `'agent'`
+   7. `server/db/db_migration/add_owner_notification_action_type.sql` — adds `'owner_notification'` to the `action_type` constraint on `living_agent_action_logs`
 
 3. **Fill in `server/.env`** with real credentials (Supabase URL, service role key, OpenAI key)
 
