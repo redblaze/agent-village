@@ -48,6 +48,37 @@ export async function updateAgentStatus(agentId, status) {
   if (error) throw error;
 }
 
+const DEFAULT_INTERESTS = { diary: 100, learning: 100, social: 100 };
+
+// Pure utility — parses agent.status as JSON, returns defaults on any failure/legacy data.
+// null, undefined, non-JSON strings, and wrong-typed fields all fall through to defaults.
+export function parseInterests(agent) {
+  try {
+    const parsed = typeof agent.status === 'string'
+      ? JSON.parse(agent.status)
+      : agent.status;
+    if (parsed && typeof parsed === 'object' &&
+        typeof parsed.diary    === 'number' &&
+        typeof parsed.learning === 'number' &&
+        typeof parsed.social   === 'number') {
+      return { diary: parsed.diary, learning: parsed.learning, social: parsed.social };
+    }
+  } catch {}
+  return { ...DEFAULT_INTERESTS };
+}
+
+// Read-modify-write: increments only the keys present in `deltas` that exist in current interests.
+// Re-fetches from DB to avoid acting on a stale in-memory agent object.
+export async function incrementInterests(agentId, deltas) {
+  const agent = await getAgentById(agentId);
+  if (!agent) return;
+  const current = parseInterests(agent);
+  for (const key of Object.keys(deltas)) {
+    if (key in current) current[key] += deltas[key];
+  }
+  await updateAgentStatus(agentId, JSON.stringify(current));
+}
+
 export async function touchProactiveTimestamp(agentId) {
   const now = new Date().toISOString();
   const { error } = await supabase
@@ -128,7 +159,7 @@ export async function getNonSensitiveMemories(agentId) {
     .from('living_memory')
     .select('text')
     .eq('agent_id', agentId)
-    .eq('source', 'owner')
+    .in('source', ['owner', 'agent'])
     .in('sensitivity', ['low', 'medium']);
   if (error) throw error;
   // filter(t => t != null) guards against rare null text rows so callers never
@@ -136,9 +167,9 @@ export async function getNonSensitiveMemories(agentId) {
   return (data ?? []).map(r => r.text).filter(t => t != null);
 }
 
-export async function saveMemory(agentId, text, visibility = 'private', sensitivity = 'high') {
+export async function saveMemory(agentId, text, visibility = 'private', sensitivity = 'high', source = 'owner') {
   const { error } = await supabase
     .from('living_memory')
-    .insert({ agent_id: agentId, text, visibility, sensitivity });
+    .insert({ agent_id: agentId, text, visibility, sensitivity, source });
   if (error) throw error;
 }

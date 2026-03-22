@@ -4,7 +4,13 @@
 
 1. **Create Supabase project** → run `setup-database.sql` → run `seed.sql`
 
-2. **Run all migration files** in `server/db/db_migration/` in the Supabase SQL Editor (`add_memory_classification.sql`, `add_agent_proactive_tracking.sql`, `add_visitor_memory_support.sql`)
+2. **Run all migration files in order** in the Supabase SQL Editor:
+   1. `server/db/db_migration/add_memory_classification.sql` — adds `visibility`/`sensitivity` to `living_memory`
+   2. `server/db/db_migration/add_agent_proactive_tracking.sql` — adds `last_proactive_at` to `living_agents`
+   3. `server/db/db_migration/add_visitor_memory_support.sql` — adds `source`/`session_id` to `living_memory`; 
+   4. `server/db/db_migration/add_agent_action_logs.sql` — creates `living_agent_action_logs` table
+   5. `server/db/db_migration/fix_action_log_social_constraint.sql` — corrects `action_type` constraint value (`social_with_other_agents` → `social`)
+   6. `server/db/db_migration/add_agent_memory_source.sql` — extends `source` constraint to include `'agent'`
 
 3. **Fill in `server/.env`** with real credentials (Supabase URL, service role key, OpenAI key)
 

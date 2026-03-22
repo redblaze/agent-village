@@ -4,6 +4,7 @@ import { config } from './config/env.js';
 import agentRoutes from './routes/agents.js';
 import chatRoutes from './routes/chat.js';
 import { startScheduler } from './scheduler/index.js';
+import './services/evolution.js';  // side-effect import — registers event handlers at startup
 
 // Process-level safety net — catches any rejection that slips through per-function handlers
 process.on('unhandledRejection', (reason) => {

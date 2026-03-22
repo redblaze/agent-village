@@ -124,3 +124,78 @@ export async function validateOutput(reply, trustLevel, agent) {
 
   return reply;
 }
+
+// ── Memory classification policies ───────────────────────────────────────────
+// Moved from evolution.js. These define privacy sensitivity classification rules
+// and belong alongside the other trust boundary enforcement code in this file.
+
+/**
+ * Extract NEW owner facts from one chat exchange.
+ * Returns [{ text: string, sensitivity: 'high'|'medium'|'low' }].
+ * Returns [] on JSON parse failure. Throws if chat() fails (propagates to eventBus).
+ */
+export async function extractOwnerMemoryFacts(userMessage, rawReply, existingTexts) {
+  const existingSection = existingTexts.length > 0
+    ? `Already known facts (do NOT re-extract these):\n${existingTexts.map(t => `- ${t}`).join('\n')}\n\n`
+    : '';
+
+  const result = await chat([
+    {
+      role: 'system',
+      content: `You are a memory extraction assistant for an AI agent.\n` +
+        `Given this exchange, extract any NEW facts about the owner worth remembering long-term.\n` +
+        `${existingSection}Return a JSON array of only NEW facts not already listed above: [{ "text": "...", "sensitivity": "high|medium|low" }]\n` +
+        `Return [] if nothing new.\n` +
+        `high = names, dates, relationships. medium = preferences, hobbies. low = general opinions.`,
+    },
+    { role: 'user', content: `Owner said: ${userMessage}\nAgent replied: ${rawReply}` },
+  ]);
+
+  let facts = [];
+  try {
+    const clean = result.replace(/```json\n?|\n?```/g, '').trim();
+    facts = JSON.parse(clean);
+    if (!Array.isArray(facts)) facts = [];
+  } catch {
+    facts = [];
+  }
+  return facts
+    .filter(f => f?.text)
+    .map(f => {
+      const raw = typeof f.sensitivity === 'string' ? f.sensitivity.toLowerCase() : '';
+      return { text: f.text, sensitivity: ['high', 'medium', 'low'].includes(raw) ? raw : 'high' };
+    });
+}
+
+/**
+ * Summarise a visitor exchange into an owner-facing memory note.
+ * Returns { text: string, sensitivity: 'low'|'medium' } or null if nothing to record.
+ * Returns null on JSON parse failure (bug fix). Throws if chat() fails (propagates to eventBus).
+ */
+export async function extractVisitorMemorySummary(userMessage, reply, priorText) {
+  const result = await chat([
+    {
+      role: 'system',
+      content: `You are a memory assistant for an AI agent. ` +
+        `Summarise the visitor interaction into a single concise note for the agent's owner.\n` +
+        `Include: visitor name (if given), apparent purpose, any message left for the owner.\n` +
+        `Prior summary: ${priorText}\n` +
+        `Update it with any new information from the latest exchange below.\n` +
+        `Return JSON only: { "text": "...", "sensitivity": "low" | "medium" }\n` +
+        `If there is still nothing meaningful to record, return { "text": null }.`,
+    },
+    { role: 'user', content: `Visitor said: ${userMessage}\nAgent replied: ${reply}` },
+  ]);
+
+  let parsed;
+  try {
+    const clean = result.replace(/```json\n?|\n?```/g, '').trim();
+    parsed = JSON.parse(clean);
+  } catch {
+    console.error('[trust] extractVisitorMemorySummary: failed to parse LLM response:', result);
+    return null;
+  }
+  if (!parsed?.text) return null;
+  const raw = typeof parsed.sensitivity === 'string' ? parsed.sensitivity.toLowerCase() : '';
+  return { text: parsed.text, sensitivity: ['low', 'medium'].includes(raw) ? raw : 'medium' };
+}

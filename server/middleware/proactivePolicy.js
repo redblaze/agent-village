@@ -1,5 +1,6 @@
 import { config } from '../config/env.js';
 import { chat } from '../services/llm.js';
+import { trigger } from '../services/eventBus.js';
 import { getNonSensitiveMemories, getPrivateMemoryTexts, getAgentById } from '../db/agents.js';
 import { getRecentActionLogs, getDiaryEntryById, getLogEntryById, addSkill, getAgentSkills, getActivityEventById } from '../db/feed.js';
 
@@ -66,6 +67,9 @@ export async function buildPublicContext(agent, contentType) {
     const userContent = [memoriesSection, activityBlock].filter(Boolean).join('\n\n');
 
     if (userContent) {   // belt-and-suspenders: skip LLM call if nothing assembled
+      // Notify evolution service — fire-and-forget, never blocks context build
+      trigger('agent_experience_aggregated', agent, { userContent });
+
       // filter nulls: getPrivateMemoryTexts() returns raw .map(r => r.text) without null guard
       const privateSection = privateMemoryTexts.length > 0
         ? `PRIVATE owner details — exclude ALL of these from your summary:\n` +
@@ -86,6 +90,11 @@ export async function buildPublicContext(agent, contentType) {
         },
         { role: 'user', content: userContent },
       ]).catch(() => '');   // LLM failure is non-fatal — fall back to base prompt
+
+      // Persist as agent self-reflection memory — fire-and-forget via evolution service.
+      if (experienceSummary) {
+        trigger('agent_experience_summarized', agent, { summary: experienceSummary });
+      }
     }
   }
 
@@ -179,9 +188,10 @@ export function shouldActProactively(agent) {
 
 // ── 5. Which proactive action to run ─────────────────────────────────────────
 
-export function selectProactiveAction() {
-  const r = Math.random();
-  if (r < 1/3) return 'diary';
-  if (r < 2/3) return 'learning';
+export function selectProactiveAction(interests = { diary: 100, learning: 100, social: 100 }) {
+  const total = interests.diary + interests.learning + interests.social;
+  const r = Math.random() * total;
+  if (r < interests.diary) return 'diary';
+  if (r < interests.diary + interests.learning) return 'learning';
   return 'social';
 }

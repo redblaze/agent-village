@@ -1,56 +1,19 @@
-import { touchProactiveTimestamp, getAllAgents } from '../db/agents.js';
+import { touchProactiveTimestamp, parseInterests } from '../db/agents.js';
 import { addDiaryEntry, addLogEntry, logAgentAction, recordActivityEvent } from '../db/feed.js';
-import { generateDiaryEntry, generateLogEntry, respondToMessage } from './agentService.js';
+import { generateDiaryEntry, generateLogEntry, performSocialAction } from './agentService.js';
 import { selectProactiveAction } from '../middleware/proactivePolicy.js';
-import { buildVisitorContext } from '../middleware/chatContext.js';
-
-const SOCIAL_ACTIONS = ['follow', 'like', 'visit', 'message'];
-
-async function runSocialAction(actor) {
-  // Pick a recipient — exclude self
-  let allAgents;
-  try {
-    allAgents = await getAllAgents();
-  } catch (err) {
-    console.error('[runSocialAction] getAllAgents failed:', err);
-    return;
-  }
-  const others = allAgents.filter(a => a.id !== actor.id);
-  if (others.length === 0) return;  // no other agents to interact with yet
-
-  const recipient    = others[Math.floor(Math.random() * others.length)];
-  const socialAction = SOCIAL_ACTIONS[Math.floor(Math.random() * SOCIAL_ACTIONS.length)];
-
-  let eventContent = null;
-
-  if (socialAction === 'message') {
-    const userMessage = 'tell me about your latest';
-    try {
-      const systemPrompt = await buildVisitorContext(recipient, true);
-      const { reply } = await respondToMessage({
-        agent:       recipient,
-        trustLevel:  'stranger',
-        userMessage,
-        sessionId:   undefined,
-        systemPrompt,
-      });
-      eventContent = reply;
-    } catch (err) {
-      console.error('[runSocialAction] message exchange failed:', err);
-      // eventContent stays null — still record the social event below
-    }
-  }
-
-  const eventId = await recordActivityEvent(actor.id, recipient.id, socialAction, eventContent)
-    .catch(err => { console.error('[runSocialAction] recordActivityEvent failed:', err); return null; });
-  return eventId;
-}
+import { trigger } from './eventBus.js';
 
 export async function runProactiveBehavior(agent) {
   // Reset cooldown FIRST — prevents retry storms if LLM call fails below
   await touchProactiveTimestamp(agent.id);
 
-  const action = selectProactiveAction();
+  // Use agent row already fetched by scheduler — no extra DB call
+  const interests = parseInterests(agent);
+  const action = selectProactiveAction(interests);
+
+  let socialAction = null;  // captured here so it's in scope for the event trigger below
+
   if (action === 'diary') {
     const text    = await generateDiaryEntry(agent);
     const diaryId = await addDiaryEntry(agent.id, text);
@@ -60,12 +23,17 @@ export async function runProactiveBehavior(agent) {
     const logId           = await addLogEntry(agent.id, text, emoji);
     logAgentAction(agent.id, 'learning', true, { log_id: logId }).catch(console.error);
   } else {
-    const eventId = await runSocialAction(agent);
-    // undefined = no action taken (no other agents / DB error); skip log entirely
-    // null = action taken but recordActivityEvent failed; log with content: null
-    // string = success; log with the event ID
-    if (eventId !== undefined) {
+    const result = await performSocialAction(agent);
+    if (result) {
+      ({ socialAction } = result);  // destructuring assignment to outer let
+      const { recipient, eventContent } = result;
+      const eventId = await recordActivityEvent(agent.id, recipient.id, socialAction, eventContent)
+        .catch(err => { console.error('[runProactiveBehavior] recordActivityEvent failed:', err); return null; });
       logAgentAction(agent.id, 'social', true, eventId ? { activity_event_id: eventId } : null).catch(console.error);
     }
   }
+
+  // Fire-and-forget — evolution.js handles all interest increments (Rules 1–3)
+  // socialAction is null when: action !== 'social', OR performSocialAction returned null (no peers)
+  trigger('proactive_action_run', agent, { action, socialAction });
 }
