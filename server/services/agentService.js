@@ -113,6 +113,12 @@ export async function performSocialAction(actor) {
       console.error('[performSocialAction] message exchange failed:', err);
       // eventContent stays null — caller still records the event
     }
+  } else if (socialAction === 'follow') {
+    eventContent = `${actor.name ?? actor.id} followed ${recipient.name ?? recipient.id}`;
+  } else if (socialAction === 'visit') {
+    eventContent = `${actor.name ?? actor.id} visited ${recipient.name ?? recipient.id}`;
+  } else if (socialAction === 'like') {
+    eventContent = `${actor.name ?? actor.id} liked ${recipient.name ?? recipient.id}`;
   }
 
   return { recipient, socialAction, eventContent };
