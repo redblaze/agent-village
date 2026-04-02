@@ -1,7 +1,7 @@
 import { respondTo, trigger } from './eventBus.js';
 import { chat } from './llm.js';
 import { addSkill, getAgentSkills } from '../db/feed.js';
-import { saveMemory, getMemoriesForContext, upsertVisitorMemory, getVisitorMemoryBySession, incrementInterests } from '../db/agents.js';
+import { saveMemory, getMemoriesForContext, insertVisitorMemory, getVisitorMemoriesBySession, incrementInterests } from '../db/agents.js';
 import { extractOwnerMemoryFacts, extractVisitorMemorySummary } from '../middleware/trust.js';
 
 // ── agent_experience_aggregated ───────────────────────────────────────────────
@@ -84,17 +84,17 @@ respondTo('answer_to_owner', async (agent, { userMessage, rawReply, isFirstTurn 
 // target: agent object  payload: { userMessage: string, reply: string, sessionId: string, isFirstTurn: boolean }
 
 respondTo('answer_to_visitor', async (agent, { userMessage, reply, sessionId, isFirstTurn }) => {
-  const prior = await getVisitorMemoryBySession(agent.id, sessionId);
-  const priorText = prior?.text ?? 'none';
+  const priorMemories = await getVisitorMemoriesBySession(agent.id, sessionId);
+  const priorTexts = priorMemories.map(m => m.text).filter(t => t != null);
 
-  const summary = await extractVisitorMemorySummary(userMessage, reply, priorText);
+  const summary = await extractVisitorMemorySummary(userMessage, reply, priorTexts);
 
-  // Persist memory summary only when there is text to store.
-  // .catch() here is required: upsertVisitorMemory throws on DB error, and without it an
+  // Insert a new row only when there is new text to store.
+  // .catch() here is required: insertVisitorMemory throws on DB error, and without it an
   // exception would propagate to the eventBus handler, stopping the trigger below.
   if (summary?.text) {
-    await upsertVisitorMemory(agent.id, sessionId, summary.text, summary.sensitivity)
-      .catch(err => console.error('[evolution] upsertVisitorMemory failed:', err));
+    await insertVisitorMemory(agent.id, sessionId, summary.text, summary.sensitivity)
+      .catch(err => console.error('[evolution] insertVisitorMemory failed:', err));
   }
 
   // Owner-message notification is independent of memory upsert — fires even if upsert failed.

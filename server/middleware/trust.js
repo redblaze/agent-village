@@ -173,15 +173,21 @@ export async function extractOwnerMemoryFacts(userMessage, rawReply, existingTex
  * or null if there is nothing to record and no owner-directed message.
  * Returns null on JSON parse failure. Throws if chat() fails (propagates to eventBus).
  */
-export async function extractVisitorMemorySummary(userMessage, reply, priorText) {
+export async function extractVisitorMemorySummary(userMessage, reply, priorTexts) {
+  // Guard against non-array callers; filter out any null entries from DB rows
+  const safeTexts = Array.isArray(priorTexts) ? priorTexts.filter(t => t != null) : [];
+
   const result = await chat([
     {
       role: 'system',
       content: `You are a memory assistant for an AI agent. ` +
         `Summarise the visitor interaction into a single concise note for the agent's owner.\n` +
         `Include: visitor name (if given), apparent purpose, any message left for the owner.\n` +
-        `Prior summary: ${priorText}\n` +
-        `Update it with any new information from the latest exchange below.\n` +
+        (safeTexts.length > 0
+          ? `Already recorded about this visitor (do NOT re-extract these):\n` +
+            safeTexts.map(t => `- ${t}`).join('\n') + '\n\n'
+          : '') +
+        `Extract only NEW information from this exchange not already captured above.\n` +
         `If the visitor is explicitly leaving a message or information intended for the owner, ` +
         `AND that message contains new content not already covered by the prior summary above, ` +
         `capture it concisely in "ownerMessage". If the owner-directed content is already ` +

@@ -131,6 +131,28 @@ export async function getVisitorMemoryBySession(agentId, sessionId) {
   return data;
 }
 
+// Inserts a new memory row per turn (does not replace prior entries for the session).
+export async function insertVisitorMemory(agentId, sessionId, text, sensitivity) {
+  const { error } = await supabase
+    .from('living_memory')
+    .insert({ agent_id: agentId, session_id: sessionId, text, sensitivity,
+              visibility: 'private', source: 'visitor' });
+  if (error) throw error;
+}
+
+// Returns all memory entries for a session, oldest-first.
+export async function getVisitorMemoriesBySession(agentId, sessionId) {
+  const { data, error } = await supabase
+    .from('living_memory')
+    .select('text, sensitivity, created_at')
+    .eq('agent_id', agentId)
+    .eq('session_id', sessionId)
+    .eq('source', 'visitor')
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return data ?? [];
+}
+
 export async function getVisitorMemories(agentId) {
   const { data, error } = await supabase
     .from('living_memory')

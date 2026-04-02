@@ -49,6 +49,35 @@ export async function getRecentActionLogs(agentId, limit = 10) {
   return data ?? [];
 }
 
+export async function getActionLogsWithTimestamp(agentId, limit = 100) {
+  const { data, error } = await supabase
+    .from('living_agent_action_logs')
+    .select('id, action_type, content, created_at')
+    .eq('agent_id', agentId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Returns all visitor_chat turns for a session in chronological order.
+// Each turn: { input: string, output: string, created_at: string }
+export async function getVisitorConversationTurns(agentId, sessionId) {
+  const { data, error } = await supabase
+    .from('living_agent_action_logs')
+    .select('content, created_at')
+    .eq('agent_id', agentId)
+    .eq('action_type', 'visitor_chat')
+    .eq('content->>session_id', sessionId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return (data ?? []).map(row => ({
+    input:      row.content?.input  ?? '',
+    output:     row.content?.output ?? '',
+    created_at: row.created_at,
+  }));
+}
+
 export async function getDiaryEntryById(id) {
   const { data, error } = await supabase
     .from('living_diary')

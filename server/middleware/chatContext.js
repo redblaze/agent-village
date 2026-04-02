@@ -1,4 +1,4 @@
-import { getAgentById, getMemoriesForContext, getVisitorMemories } from '../db/agents.js';
+import { getAgentById, getMemoriesForContext, getVisitorMemories, getVisitorMemoriesBySession } from '../db/agents.js';
 import { getRecentDiaryEntries } from '../db/feed.js';
 import { sessionExists } from '../services/session.js';
 
@@ -38,16 +38,26 @@ Keep responses concise and in character.`;
 
 // ── 2. Visitor chat context ──────────────────────────────────────────────────
 
-export async function buildVisitorContext(agent, isFirstMessage) {
-  // getMemoriesForContext filters source='owner' — visitor memories (source='visitor') are
-  // intentionally excluded here. If cross-session visitor continuity is added in the future,
-  // use getVisitorMemoryBySession(agentId, sessionId) — NOT getVisitorMemories — to avoid
-  // surfacing one visitor's name/details to a different visitor.
+export async function buildVisitorContext(agent, isFirstMessage, sessionId = null) {
+  // getMemoriesForContext filters source='owner' — cross-session visitor memories are
+  // intentionally excluded here to avoid surfacing one visitor's details to another.
+  // Per-session memories are fetched separately below using the specific sessionId.
   const memories    = await getMemoriesForContext(agent.id, 'stranger');
   const recentDiary = await getRecentDiaryEntries(agent.id, 5);
 
+  // Fetch what the agent already knows about this specific visitor session
+  let sessionMemories = [];
+  if (sessionId) {
+    sessionMemories = await getVisitorMemoriesBySession(agent.id, sessionId).catch(() => []);
+  }
+
   const memoriesSection = memories.length > 0
     ? `Things you are comfortable sharing:\n${memories.map(m => `- ${m.text}`).join('\n')}\n`
+    : '';
+  const sessionTexts = sessionMemories.map(m => m.text).filter(t => t != null);
+  const sessionSection = sessionTexts.length > 0
+    ? `What you already know about this visitor from earlier in this conversation:\n` +
+      sessionTexts.map(t => `- ${t}`).join('\n') + '\n\n'
     : '';
   const diarySection = recentDiary.length > 0
     ? `Recent diary:\n${recentDiary.map(d => d.text).join('\n')}\n`
@@ -59,7 +69,7 @@ export async function buildVisitorContext(agent, isFirstMessage) {
 
   return `You are ${agent.name}. ${agent.visitor_bio ?? ''}
 
-${memoriesSection}${diarySection}CONVERSATION BEHAVIOR:
+${memoriesSection}${sessionSection}${diarySection}CONVERSATION BEHAVIOR:
 - You are greeting a visitor on behalf of yourself and this space.
 - Early in the conversation, warmly ask the visitor for their name. Once you know it, use it naturally.
 - After a turn or two, proactively offer: "Would you like to leave a message for the owner?"
@@ -88,7 +98,7 @@ export async function resolveContext(req, res, next) {
       // Determine isFirstMessage via sessionExists only (avoids touching lastUsed on session)
       const sessionId      = req.body?.sessionId;
       const isFirstMessage = !sessionId || !sessionExists(sessionId);
-      req.systemPrompt = await buildVisitorContext(agent, isFirstMessage);
+      req.systemPrompt = await buildVisitorContext(agent, isFirstMessage, sessionId);
     }
     next();
   } catch (err) {

@@ -3,6 +3,7 @@ import cors from 'cors';
 import { config } from './config/env.js';
 import agentRoutes from './routes/agents.js';
 import chatRoutes from './routes/chat.js';
+import pagesRoutes from './routes/pages.js';
 import { startScheduler } from './scheduler/index.js';
 import './services/evolution.js';  // side-effect import — registers event handlers at startup
 
@@ -16,6 +17,7 @@ app.use(cors());           // Allow browser requests (e.g. /chat/token from inde
 app.use(express.json());
 app.use('/agents', agentRoutes);
 app.use('/chat', chatRoutes);
+app.use('/', pagesRoutes);
 
 // Express 4 catch-all error handler — catches any error passed via next(err)
 app.use((err, req, res, _next) => {
