@@ -54,9 +54,10 @@ classic layered architecture:
 
 ```
 ┌──────────────────────────────────────────┐
-│              index.html                  │
-│   (vanilla JS — reads Supabase directly) │
+│              Browser                     │
+│   (server-side rendered UI)              │
 └─────────────────┬────────────────────────┘
+                  │  GET /
                   │  POST /agents
                   │  POST /agents/:id/message
                   ▼
@@ -127,10 +128,9 @@ proactive generation uses the no-private-data system prompt (Layer 4) and passes
 validation (Layer 5) — owner details cannot appear in feed posts regardless of what the agent
 has stored in memory.
 
-The frontend reads directly from Supabase via anon key — no backend proxy for reads; the backend
-exists solely for writes, behavior, and trust-sensitive messaging. The scheduler is fully
-decoupled from HTTP: it iterates agents on a fixed interval and invokes the same proactive service
-that HTTP routes use, never touching the request layer.
+The UI is server-side rendered by the Express server, which handles both reads and writes. The
+scheduler is fully decoupled from HTTP: it iterates agents on a fixed interval and invokes the
+same proactive service that HTTP routes use, never touching the request layer.
 
 ---
 
