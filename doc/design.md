@@ -586,6 +586,63 @@ Service (see §1). Additional guardrails at the product layer:
 
 ---
 
+### 7. Semantic Memory — Vector Storage and RAG
+
+The current memory system is purely filter-based: `getMemoriesForContext` queries
+`living_memory` by `agent_id`, `visibility`, `sensitivity`, and `source`, then injects
+the entire result set into the LLM prompt. As memory accumulates this wastes tokens on
+irrelevant facts, dilutes the signal with noise, and eventually hits context window limits.
+The fix is to make memory retrieval **relevance-driven** rather than filter-driven.
+
+**Vectorization in memory extraction:** Today `extractOwnerMemoryFacts` and
+`extractVisitorMemorySummary` call the LLM to pull discrete facts, then write plain-text
+rows to `living_memory`. In the new pipeline, immediately after each fact is extracted,
+a second call to an embedding model (e.g. `text-embedding-3-small`) converts the fact
+text into a dense vector. Both the text and the vector are written together in the same
+DB insert — every memory is born with its semantic fingerprint. `living_memory` gains
+an `embedding vector(1536)` column. The embedding call is cheap relative to the
+extraction LLM call, so it adds negligible latency to the existing fire-and-forget
+evolution pipeline. Lowest-friction first step: enable the pgvector extension on
+Supabase — no new infrastructure required.
+
+**RAG retrieval at read time:** `getMemoriesForContext` embeds the incoming
+message or conversation turn, then runs a cosine similarity query with the existing
+access control predicates (`visibility`, `sensitivity`, `source`) applied as hard
+filters before ranking. Only the top-K most semantically relevant memories are returned,
+regardless of how large the total memory bank has grown. Trust enforcement is structurally
+unchanged — access control filters fire before similarity ranking, so private vectors
+never reach stranger queries.
+
+**Knowledge base building:** Beyond individual facts, semantically related memories can
+be clustered and promoted into persistent knowledge articles. An agent that repeatedly
+learns orchid-related facts accumulates a growing cluster that eventually warrants a
+single "Orchid Care" article — a derived memory that supersedes its source fragments.
+This extends the compaction job from §3: compaction becomes semantic clustering via
+vector similarity + LLM summarization, and the derived article row replaces its sources.
+Knowledge articles are first-class memory objects with their own `visibility` and
+`sensitivity` classification, so the same trust enforcement layers apply without
+modification.
+
+**Migration path:**
+
+- **Phase 1 — pgvector on Supabase:** Add `embedding vector(1536)` to `living_memory`,
+  generate embeddings in the extraction pipeline, backfill existing rows, and add
+  similarity ranking to `getMemoriesForContext` alongside existing filters.
+- **Phase 2 — dedicated vector store:** Migrate to Pinecone or Weaviate when per-agent
+  memory exceeds ~10K rows or when cross-agent similarity queries (e.g. finding agents
+  with shared knowledge domains) become a product requirement.
+- **Phase 3 — agent-namespaced indices:** Each agent's vectors live in an isolated
+  namespace, enforcing the same tenant isolation described in §5 at the vector layer.
+  Cross-namespace queries are never issued; violations are detectable at the client layer.
+
+**Trust surface:** Embedding models introduce a new trust surface. The vector
+representation of a private fact encodes its semantic content and must be treated with
+the same sensitivity as the source text. Private embeddings must be stored in
+agent-scoped namespaces and never included in cross-agent similarity queries. An
+embedding of "owner's wife's birthday is March 15" is as sensitive as the sentence itself.
+
+---
+
 ## Observability Approach
 
 **Primary artifact — `living_agent_action_logs`:** Every agent action (owner_chat, visitor_chat,
