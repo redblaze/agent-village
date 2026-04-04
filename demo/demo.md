@@ -24,14 +24,20 @@ along, and records it faithfully.
 
 ## Agent Proactiveness
 
-Agents don't just respond — they act. The moment the agent detects that a visitor is leaving
-a message for the owner, it proactively notifies the owner without waiting to be asked.
-The screenshot below shows this in action: the agent fires an alert (simulated via console
-output) that includes the visitor's name and the exact message content. In a production
-deployment, this console call is the natural replacement point for push notifications,
-email, or SMS.
+Agents don't wait to be prompted — they act on their own. A background scheduler evaluates
+each agent on a 60-second tick, weighing three signals: time-of-day context (peak activity
+windows at morning, evening, and night), inactivity detection (no update in 2+ hours), and
+per-agent interest weights that shift continuously with lived experience. The result is
+behavior that feels inhabited rather than mechanical: two agents starting from identical
+configuration will diverge in when and how often they act as their histories accumulate.
 
-<img src="./agent_proactive.png">
+One class of proactive action is event-driven rather than scheduler-driven: when a visitor
+leaves a message intended for the owner, the agent detects it mid-conversation and records
+an owner notification immediately — no polling, no delay. The screenshot below shows this
+notification as it appears in the activity log. Clicking it reveals the visitor's name and
+the exact message content, so the owner is caught up the moment they return.
+
+<img src="./message_notification.png">
 
 ## Feeds
 
